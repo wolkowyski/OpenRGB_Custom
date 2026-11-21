@@ -1,3 +1,19 @@
+> [!NOTE]
+> **This is a fork of [OpenRGB](https://gitlab.com/CalcProgrammer1/OpenRGB)** by Braian Wolkowyski that adds
+> support for **ELK-BLEDOM Bluetooth LE LED strips** (the generic strips sold as *Lambo Tech* and many other brands).
+>
+> - Native Bluetooth LE driver on Windows through the WinRT GATT API, with no extra dependencies
+> - Strips are added by **name + MAC** in *Settings → Manually Added Devices*, and you can add as many as you want
+> - Background connection with automatic reconnect, plus rate-limited writes so effects don't flood the strip
+> - Tested on real hardware: color, brightness and off
+>
+> Code: [`Controllers/BLEDOMController/`](Controllers/BLEDOMController/) · Protocol and setup: [controller README](Controllers/BLEDOMController/README.md) · Settings UI: [`qt/ManualDevicesSettingsPage/BLEDOMSettingsEntry/`](qt/ManualDevicesSettingsPage/BLEDOMSettingsEntry/)
+>
+> **Build (Windows):** Qt 6 (MSVC 2022 64-bit) + Visual Studio Build Tools with the Windows 11 SDK, then
+> `qmake OpenRGB.pro CONFIG+=release` and `nmake release` from a *x64 Native Tools* prompt (or open `OpenRGB.pro` in Qt Creator).
+>
+> The original OpenRGB README follows.
+
 ## ![OpenRGB](Documentation/Images/OpenRGB.png "OpenRGB Logo")
 
 ![Pipeline Status](https://gitlab.com/CalcProgrammer1/OpenRGB/badges/master/pipeline.svg)
