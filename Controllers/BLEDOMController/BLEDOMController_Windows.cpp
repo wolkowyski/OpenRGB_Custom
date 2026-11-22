@@ -12,9 +12,12 @@
 
 /*---------------------------------------------------------*\
 | OpenRGB builds as C++17. C++/WinRT only needs the         |
-| coroutine handle types here (we never co_await), which    |
-| MSVC still provides through the deprecated experimental   |
-| header in C++17 mode.                                     |
+| coroutine handle types (this file never uses co_await),   |
+| which MSVC still provides in C++17 mode through the       |
+| deprecated <experimental/coroutine> header. This define   |
+| silences that deprecation. If a future MSVC removes the   |
+| header, building this file as C++20 fixes it; the define  |
+| is harmless in C++20.                                     |
 \*---------------------------------------------------------*/
 #define _SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS
 
@@ -35,10 +38,11 @@
 
 using namespace winrt::Windows::Devices::Bluetooth;
 using namespace winrt::Windows::Devices::Bluetooth::GenericAttributeProfile;
+using namespace winrt::Windows::Foundation::Collections;
 using namespace winrt::Windows::Storage::Streams;
 
 /*---------------------------------------------------------*\
-| Characteristics used by the different BLEDOM firmwares    |
+| Write characteristics used by the BLEDOM firmwares        |
 \*---------------------------------------------------------*/
 static const winrt::guid bledom_write_uuids[] =
 {
@@ -46,30 +50,61 @@ static const winrt::guid bledom_write_uuids[] =
     winrt::guid(0x0000FFE9, 0x0000, 0x1000, { 0x80, 0x00, 0x00, 0x80, 0x5F, 0x9B, 0x34, 0xFB }),
 };
 
+#define BLEDOM_WRITE_UUID_COUNT     (sizeof(bledom_write_uuids) / sizeof(bledom_write_uuids[0]))
+
 struct BLEDOMWinRTState
 {
     BluetoothLEDevice           device          { nullptr };
     GattSession                 session         { nullptr };
     GattCharacteristic          characteristic  { nullptr };
-    GattWriteOption             write_option    = GattWriteOption::WriteWithoutResponse;
+    GattWriteOption             write_option    { GattWriteOption::WriteWithoutResponse };
 };
 
-BLEDOMController::BLEDOMController(const std::string& dev_name, const std::string& mac)
+static void BuildColorFrame(unsigned char* frame, unsigned char* color)
 {
-    name            = dev_name;
-    mac_string      = mac;
-    address         = 0;
-    pending         = false;
-    worker_running  = false;
-    connected       = false;
-    flush_deadline  = std::chrono::steady_clock::now();
-    winrt_state     = std::make_unique<BLEDOMWinRTState>();
+    frame[0] = 0x7E;
+    frame[1] = 0x07;
+    frame[2] = 0x05;
+    frame[3] = 0x03;
+    frame[4] = color[0];
+    frame[5] = color[1];
+    frame[6] = color[2];
+    frame[7] = 0x10;
+    frame[8] = 0xEF;
+}
 
-    memset(pending_frame, 0, sizeof(pending_frame));
+static void BuildPowerFrame(unsigned char* frame, bool on)
+{
+    frame[0] = 0x7E;
+    frame[1] = 0x04;
+    frame[2] = 0x04;
+    frame[3] = on ? 0xF0 : 0x00;
+    frame[4] = 0x00;
+    frame[5] = on ? 0x01 : 0x00;
+    frame[6] = 0xFF;
+    frame[7] = 0x00;
+    frame[8] = 0xEF;
+}
 
-    if(!ParseMAC(mac, address))
+BLEDOMController::BLEDOMController(std::string dev_name, std::string mac)
+{
+    name                = dev_name;
+    mac_string          = mac;
+    address             = 0;
+    winrt_state         = new BLEDOMWinRTState;
+    worker_thread       = NULL;
+    connected           = false;
+    connect_failures    = 0;
+    worker_running      = false;
+    color_pending       = false;
+    power_pending       = false;
+    requested_power     = BLEDOM_POWER_UNKNOWN;
+
+    memset(pending_color, 0, sizeof(pending_color));
+
+    if(!ParseMAC(mac, &address))
     {
-        LOG_ERROR("[BLEDOM] Invalid MAC address \"%s\" for device \"%s\"", mac.c_str(), name.c_str());
+        LOG_ERROR("[BLEDOM] %s: invalid MAC address \"%s\"", name.c_str(), mac.c_str());
         return;
     }
 
@@ -77,28 +112,32 @@ BLEDOMController::BLEDOMController(const std::string& dev_name, const std::strin
     | Connecting can take several seconds, so it happens on |
     | the worker thread and detection returns immediately.  |
     \*-----------------------------------------------------*/
-    worker_running  = true;
-    worker_thread   = std::thread(&BLEDOMController::WorkerThreadFunction, this);
+    worker_running      = true;
+    worker_thread       = new std::thread(&BLEDOMController::WorkerThreadFunction, this);
 }
 
 BLEDOMController::~BLEDOMController()
 {
     /*-----------------------------------------------------*\
-    | Give the worker a few seconds to deliver a color that |
-    | is still queued (e.g. CLI usage, which sets a color   |
-    | and exits right away, before the link is up).         |
+    | A request that is still queued gets one last delivery |
+    | attempt (CLI usage sets a color and exits right       |
+    | away). The worker gives up after a single failed      |
+    | connection or write, so shutdown never stalls on an   |
+    | unreachable strip.                                    |
     \*-----------------------------------------------------*/
+    if(worker_thread != NULL)
     {
-        std::lock_guard<std::mutex> lock(pending_mutex);
-        flush_deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(BLEDOM_SHUTDOWN_FLUSH_TIME);
-        worker_running = false;
-    }
-    pending_cv.notify_all();
+        {
+            std::lock_guard<std::mutex> lock(pending_mutex);
+            worker_running = false;
+        }
+        pending_cv.notify_all();
 
-    if(worker_thread.joinable())
-    {
-        worker_thread.join();
+        worker_thread->join();
+        delete worker_thread;
     }
+
+    delete winrt_state;
 }
 
 std::string BLEDOMController::GetName()
@@ -116,37 +155,50 @@ std::string BLEDOMController::GetLocation()
     return("Bluetooth LE: " + mac_string);
 }
 
-bool BLEDOMController::IsConnected()
-{
-    return(connected);
-}
-
 void BLEDOMController::SetColor(unsigned char red, unsigned char grn, unsigned char blu)
 {
     {
         std::lock_guard<std::mutex> lock(pending_mutex);
 
         /*-------------------------------------------------*\
-        | 7E 07 05 03 RR GG BB 10 EF : set static color     |
+        | Showing a color implies the strip must be on      |
         \*-------------------------------------------------*/
-        pending_frame[0] = 0x7E;
-        pending_frame[1] = 0x07;
-        pending_frame[2] = 0x05;
-        pending_frame[3] = 0x03;
-        pending_frame[4] = red;
-        pending_frame[5] = grn;
-        pending_frame[6] = blu;
-        pending_frame[7] = 0x10;
-        pending_frame[8] = 0xEF;
-        pending          = true;
+        if(requested_power != BLEDOM_POWER_ON)
+        {
+            requested_power = BLEDOM_POWER_ON;
+            power_pending   = true;
+        }
+
+        pending_color[0]    = red;
+        pending_color[1]    = grn;
+        pending_color[2]    = blu;
+        color_pending       = true;
     }
     pending_cv.notify_one();
 }
 
-bool BLEDOMController::ParseMAC(const std::string& mac, uint64_t& out_address)
+void BLEDOMController::SetPower(bool on)
 {
-    unsigned int bytes[6];
-    char         trailing;
+    int new_power = on ? BLEDOM_POWER_ON : BLEDOM_POWER_OFF;
+
+    {
+        std::lock_guard<std::mutex> lock(pending_mutex);
+
+        if(requested_power == new_power)
+        {
+            return;
+        }
+
+        requested_power     = new_power;
+        power_pending       = true;
+    }
+    pending_cv.notify_one();
+}
+
+bool BLEDOMController::ParseMAC(std::string mac, unsigned long long* out_address)
+{
+    unsigned int    bytes[6];
+    char            trailing;
 
     if(sscanf(mac.c_str(), "%2x:%2x:%2x:%2x:%2x:%2x%c",
               &bytes[0], &bytes[1], &bytes[2], &bytes[3], &bytes[4], &bytes[5], &trailing) != 6)
@@ -154,11 +206,11 @@ bool BLEDOMController::ParseMAC(const std::string& mac, uint64_t& out_address)
         return(false);
     }
 
-    out_address = 0;
+    *out_address = 0;
 
     for(int byte_idx = 0; byte_idx < 6; byte_idx++)
     {
-        out_address = (out_address << 8) | (bytes[byte_idx] & 0xFF);
+        *out_address = (*out_address << 8) | (bytes[byte_idx] & 0xFF);
     }
 
     return(true);
@@ -169,98 +221,169 @@ void BLEDOMController::WorkerThreadFunction()
     winrt::init_apartment(winrt::apartment_type::multi_threaded);
 
     unsigned char frame[BLEDOM_FRAME_SIZE];
-
-    /*-----------------------------------------------------*\
-    | Exit once stopped, unless a color is still queued and |
-    | the shutdown flush window has not expired yet.        |
-    | Must be called with pending_mutex held.               |
-    \*-----------------------------------------------------*/
-    auto should_exit = [this]()
-    {
-        return !worker_running && (!pending || std::chrono::steady_clock::now() >= flush_deadline);
-    };
+    unsigned char color[3];
 
     while(true)
     {
+        bool stopping;
+        bool send_power;
+        bool power_on;
+        bool send_color;
+
         {
             std::lock_guard<std::mutex> lock(pending_mutex);
 
-            if(should_exit())
+            if(!worker_running && !power_pending && !color_pending)
             {
                 break;
             }
+
+            stopping = !worker_running;
         }
 
         /*-------------------------------------------------*\
-        | (Re)connect, waiting between failed attempts      |
+        | (Re)connect, waiting between failed attempts.     |
+        | While stopping, a single attempt is made.         |
         \*-------------------------------------------------*/
         if(!connected)
         {
             if(!Connect())
             {
+                if(stopping)
+                {
+                    break;
+                }
+
                 std::unique_lock<std::mutex> lock(pending_mutex);
 
                 if(worker_running)
                 {
-                    pending_cv.wait_for(lock, std::chrono::milliseconds(BLEDOM_RECONNECT_INTERVAL), [this]{ return !worker_running; });
-                }
-                else
-                {
-                    pending_cv.wait_for(lock, std::chrono::milliseconds(500));
+                    pending_cv.wait_for(lock, std::chrono::milliseconds(BLEDOM_RECONNECT_INTERVAL));
                 }
                 continue;
             }
         }
 
         /*-------------------------------------------------*\
-        | Wait for a new color                              |
+        | Wait for a request and take a snapshot of it      |
         \*-------------------------------------------------*/
         {
             std::unique_lock<std::mutex> lock(pending_mutex);
-            pending_cv.wait(lock, [this]{ return pending || !worker_running; });
 
-            if(!pending)
+            while(worker_running && !power_pending && !color_pending)
+            {
+                pending_cv.wait(lock);
+            }
+
+            if(!power_pending && !color_pending)
             {
                 continue;
             }
 
-            memcpy(frame, pending_frame, sizeof(frame));
-            pending = false;
+            send_power      = power_pending;
+            power_on        = (requested_power == BLEDOM_POWER_ON);
+            send_color      = color_pending && power_on;
+            memcpy(color, pending_color, sizeof(color));
+
+            power_pending   = false;
+            color_pending   = false;
         }
 
-        if(!WriteFrame(frame))
+        /*-------------------------------------------------*\
+        | Power first, so a color sent after "on" is shown  |
+        \*-------------------------------------------------*/
+        bool success = true;
+
+        if(send_power)
         {
-            /*---------------------------------------------*\
-            | Keep the color so it is sent after reconnect  |
-            \*---------------------------------------------*/
+            BuildPowerFrame(frame, power_on);
+            success = WriteFrame(frame);
+
+            if(success && send_color)
             {
-                std::lock_guard<std::mutex> lock(pending_mutex);
-                if(!pending)
-                {
-                    memcpy(pending_frame, frame, sizeof(frame));
-                    pending = true;
-                }
+                std::this_thread::sleep_for(std::chrono::milliseconds(BLEDOM_POWER_SETTLE_TIME));
             }
+        }
+
+        if(success && send_color)
+        {
+            BuildColorFrame(frame, color);
+            success = WriteFrame(frame);
+        }
+
+        if(!success)
+        {
             Disconnect();
+
+            if(stopping)
+            {
+                break;
+            }
+
+            /*---------------------------------------------*\
+            | Requeue what failed unless a newer request    |
+            | already replaced it                           |
+            \*---------------------------------------------*/
+            std::lock_guard<std::mutex> lock(pending_mutex);
+
+            if(send_power)
+            {
+                power_pending = true;
+            }
+
+            if(send_color && !color_pending)
+            {
+                memcpy(pending_color, color, sizeof(color));
+                color_pending = true;
+            }
             continue;
         }
 
         std::this_thread::sleep_for(std::chrono::milliseconds(BLEDOM_MIN_WRITE_INTERVAL));
     }
 
+    /*-----------------------------------------------------*\
+    | Writes without response are only queued. Closing the  |
+    | link right away drops frames that were not sent yet,  |
+    | so give the Bluetooth stack time to flush them.       |
+    \*-----------------------------------------------------*/
+    if(connected)
+    {
+        std::this_thread::sleep_for(std::chrono::milliseconds(BLEDOM_SHUTDOWN_DRAIN_TIME));
+    }
+
     Disconnect();
     winrt::uninit_apartment();
 }
 
+void BLEDOMController::ReportConnectFailure(const char* reason)
+{
+    /*-----------------------------------------------------*\
+    | Warn once, then keep retries out of the default log   |
+    \*-----------------------------------------------------*/
+    if(connect_failures == 0)
+    {
+        LOG_WARNING("[BLEDOM] %s: %s, retrying every %d s", name.c_str(), reason, BLEDOM_RECONNECT_INTERVAL / 1000);
+    }
+    else
+    {
+        LOG_VERBOSE("[BLEDOM] %s: %s", name.c_str(), reason);
+    }
+
+    connect_failures++;
+}
+
 bool BLEDOMController::Connect()
 {
+    char reason[128];
+
     try
     {
         BluetoothLEDevice device = BluetoothLEDevice::FromBluetoothAddressAsync(address).get();
 
         if(!device)
         {
-            LOG_VERBOSE("[BLEDOM] %s: device %s not found", name.c_str(), mac_string.c_str());
+            ReportConnectFailure("device not found");
             return(false);
         }
 
@@ -268,6 +391,7 @@ bool BLEDOMController::Connect()
         | Ask Windows to keep the link up between writes    |
         \*-------------------------------------------------*/
         GattSession session = GattSession::FromDeviceIdAsync(device.BluetoothDeviceId()).get();
+
         if(session)
         {
             session.MaintainConnection(true);
@@ -277,25 +401,37 @@ bool BLEDOMController::Connect()
 
         if(services.Status() != GattCommunicationStatus::Success)
         {
-            LOG_VERBOSE("[BLEDOM] %s: GATT services unreachable (status %d), is another app connected?", name.c_str(), (int)services.Status());
+            snprintf(reason, sizeof(reason), "GATT services unreachable (status %d), is another app connected?", (int)services.Status());
+            ReportConnectFailure(reason);
+
+            if(session)
+            {
+                session.Close();
+            }
             device.Close();
             return(false);
         }
 
-        for(GattDeviceService const& service : services.Services())
+        IVectorView<GattDeviceService> service_list = services.Services();
+
+        for(unsigned int service_idx = 0; service_idx < service_list.Size(); service_idx++)
         {
-            GattCharacteristicsResult characteristics = service.GetCharacteristicsAsync(BluetoothCacheMode::Uncached).get();
+            GattCharacteristicsResult characteristics = service_list.GetAt(service_idx).GetCharacteristicsAsync(BluetoothCacheMode::Uncached).get();
 
             if(characteristics.Status() != GattCommunicationStatus::Success)
             {
                 continue;
             }
 
-            for(GattCharacteristic const& characteristic : characteristics.Characteristics())
+            IVectorView<GattCharacteristic> characteristic_list = characteristics.Characteristics();
+
+            for(unsigned int char_idx = 0; char_idx < characteristic_list.Size(); char_idx++)
             {
-                for(winrt::guid const& uuid : bledom_write_uuids)
+                GattCharacteristic characteristic = characteristic_list.GetAt(char_idx);
+
+                for(unsigned int uuid_idx = 0; uuid_idx < BLEDOM_WRITE_UUID_COUNT; uuid_idx++)
                 {
-                    if(characteristic.Uuid() != uuid)
+                    if(characteristic.Uuid() != bledom_write_uuids[uuid_idx])
                     {
                         continue;
                     }
@@ -319,6 +455,7 @@ bool BLEDOMController::Connect()
                     winrt_state->session        = session;
                     winrt_state->characteristic = characteristic;
                     connected                   = true;
+                    connect_failures            = 0;
 
                     LOG_INFO("[BLEDOM] %s: connected to %s", name.c_str(), mac_string.c_str());
                     return(true);
@@ -326,7 +463,7 @@ bool BLEDOMController::Connect()
             }
         }
 
-        LOG_WARNING("[BLEDOM] %s: no BLEDOM write characteristic (FFF3/FFE9) found", name.c_str());
+        ReportConnectFailure("no BLEDOM write characteristic (FFF3/FFE9) found");
 
         if(session)
         {
@@ -336,7 +473,8 @@ bool BLEDOMController::Connect()
     }
     catch(winrt::hresult_error const& error)
     {
-        LOG_WARNING("[BLEDOM] %s: connection failed (0x%08X)", name.c_str(), (unsigned int)error.code());
+        snprintf(reason, sizeof(reason), "connection failed (0x%08X)", (unsigned int)error.code());
+        ReportConnectFailure(reason);
     }
 
     return(false);
@@ -353,28 +491,30 @@ void BLEDOMController::Disconnect()
         if(winrt_state->session)
         {
             winrt_state->session.Close();
-            winrt_state->session = nullptr;
         }
 
         if(winrt_state->device)
         {
             winrt_state->device.Close();
-            winrt_state->device = nullptr;
         }
     }
     catch(winrt::hresult_error const&)
     {
-        winrt_state->session = nullptr;
-        winrt_state->device  = nullptr;
+        /*-------------------------------------------------*\
+        | Nothing left to clean up if closing fails         |
+        \*-------------------------------------------------*/
     }
+
+    winrt_state->session    = nullptr;
+    winrt_state->device     = nullptr;
 }
 
-bool BLEDOMController::WriteFrame(const unsigned char* frame)
+bool BLEDOMController::WriteFrame(unsigned char* frame)
 {
     try
     {
         DataWriter writer;
-        writer.WriteBytes(winrt::array_view<const uint8_t>(frame, frame + BLEDOM_FRAME_SIZE));
+        writer.WriteBytes(winrt::array_view<const unsigned char>(frame, frame + BLEDOM_FRAME_SIZE));
 
         GattWriteResult result = winrt_state->characteristic.WriteValueWithResultAsync(writer.DetachBuffer(), winrt_state->write_option).get();
 

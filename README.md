@@ -7,7 +7,9 @@
 > - Background connection with automatic reconnect, plus rate-limited writes so effects don't flood the strip
 > - Tested on real hardware: color, brightness and off
 >
-> Code: [`Controllers/BLEDOMController/`](Controllers/BLEDOMController/) · Protocol and setup: [controller README](Controllers/BLEDOMController/README.md) · Settings UI: [`qt/ManualDevicesSettingsPage/BLEDOMSettingsEntry/`](qt/ManualDevicesSettingsPage/BLEDOMSettingsEntry/)
+> Code: [`Controllers/BLEDOMController/`](Controllers/BLEDOMController/) (the protocol is documented in [`BLEDOMController_Windows.h`](Controllers/BLEDOMController/BLEDOMController_Windows.h)) · Settings UI: [`qt/ManualDevicesSettingsPage/BLEDOMSettingsEntry/`](qt/ManualDevicesSettingsPage/BLEDOMSettingsEntry/)
+>
+> **Setup:** find the strip's MAC (for example with *nRF Connect* on your phone), then go to *Settings → Manually Added Devices → Add → ELK-BLEDOM (Bluetooth LE)*, enter a name and the MAC, save and rescan. Close the phone app first, because the strip only accepts one connection.
 >
 > **Build (Windows):** Qt 6 (MSVC 2022 64-bit) + Visual Studio Build Tools with the Windows 11 SDK, then
 > `qmake OpenRGB.pro CONFIG+=release` and `nmake release` from a *x64 Native Tools* prompt (or open `OpenRGB.pro` in Qt Creator).

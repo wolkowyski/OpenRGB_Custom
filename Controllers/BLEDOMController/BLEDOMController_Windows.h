@@ -12,67 +12,90 @@
 
 #pragma once
 
-#include <atomic>
-#include <chrono>
 #include <condition_variable>
-#include <cstdint>
-#include <memory>
 #include <mutex>
 #include <string>
 #include <thread>
 
 /*---------------------------------------------------------*\
 | ELK-BLEDOM protocol                                       |
-|   Every command is a 9 byte frame 7E .. .. .. .. .. .. EF |
-|   written to characteristic FFF3 (or FFE9 on some         |
-|   variants) without response.                             |
+|                                                           |
+|   The strip exposes service FFF0. Commands are 9 byte     |
+|   frames (7E .. .. .. .. .. .. .. EF) written without     |
+|   response to characteristic FFF3 (FFE9 on some           |
+|   variants).                                              |
+|                                                           |
+|   Color     7E 07 05 03 RR GG BB 10 EF                    |
+|   Power on  7E 04 04 F0 00 01 FF 00 EF                    |
+|   Power off 7E 04 04 00 00 00 FF 00 EF                    |
+|                                                           |
+|   The controller accepts a single BLE connection, so the  |
+|   phone app must be disconnected while OpenRGB runs.      |
 \*---------------------------------------------------------*/
 #define BLEDOM_FRAME_SIZE           9
-#define BLEDOM_MIN_WRITE_INTERVAL   30      /* ms between writes, the strip drops faster updates */
-#define BLEDOM_RECONNECT_INTERVAL   5000    /* ms between reconnection attempts                  */
-#define BLEDOM_SHUTDOWN_FLUSH_TIME  8000    /* ms allowed on shutdown to deliver a pending color */
+#define BLEDOM_MIN_WRITE_INTERVAL   30      /* ms between writes, faster updates get dropped */
+#define BLEDOM_RECONNECT_INTERVAL   5000    /* ms between reconnection attempts              */
+#define BLEDOM_POWER_SETTLE_TIME    100     /* ms after a power command before the next one  */
+#define BLEDOM_SHUTDOWN_DRAIN_TIME  3000    /* ms to let queued writes go out before closing */
+
+enum
+{
+    BLEDOM_POWER_UNKNOWN            = 0,
+    BLEDOM_POWER_OFF                = 1,
+    BLEDOM_POWER_ON                 = 2,
+};
 
 struct BLEDOMWinRTState;
 
 class BLEDOMController
 {
 public:
-    BLEDOMController(const std::string& dev_name, const std::string& mac);
+    BLEDOMController(std::string dev_name, std::string mac);
     ~BLEDOMController();
 
     std::string GetName();
     std::string GetMAC();
     std::string GetLocation();
-    bool        IsConnected();
 
     /*-----------------------------------------------------*\
-    | Queue a color. Non-blocking: the worker thread only   |
-    | sends the most recent color, so fast effects never    |
+    | Both calls are non-blocking. The worker thread only   |
+    | sends the most recent request, so fast effects never  |
     | build up a backlog of BLE writes.                     |
     \*-----------------------------------------------------*/
     void        SetColor(unsigned char red, unsigned char grn, unsigned char blu);
+    void        SetPower(bool on);
 
-    static bool ParseMAC(const std::string& mac, uint64_t& address);
+    static bool ParseMAC(std::string mac, unsigned long long* address);
 
 private:
-    std::string                         name;
-    std::string                         mac_string;
-    uint64_t                            address;
+    std::string             name;
+    std::string             mac_string;
+    unsigned long long      address;
 
-    std::unique_ptr<BLEDOMWinRTState>   winrt_state;
+    BLEDOMWinRTState*       winrt_state;
+    std::thread*            worker_thread;
 
-    std::thread                         worker_thread;
-    std::atomic<bool>                   worker_running;
-    std::atomic<bool>                   connected;
-    std::chrono::steady_clock::time_point flush_deadline;
+    /*-----------------------------------------------------*\
+    | Only accessed by the worker thread                    |
+    \*-----------------------------------------------------*/
+    bool                    connected;
+    unsigned int            connect_failures;
 
-    std::mutex                          pending_mutex;
-    std::condition_variable             pending_cv;
-    bool                                pending;
-    unsigned char                       pending_frame[BLEDOM_FRAME_SIZE];
+    /*-----------------------------------------------------*\
+    | Shared with the worker thread, protected by           |
+    | pending_mutex                                         |
+    \*-----------------------------------------------------*/
+    std::mutex              pending_mutex;
+    std::condition_variable pending_cv;
+    bool                    worker_running;
+    bool                    color_pending;
+    unsigned char           pending_color[3];
+    bool                    power_pending;
+    int                     requested_power;
 
     void        WorkerThreadFunction();
     bool        Connect();
     void        Disconnect();
-    bool        WriteFrame(const unsigned char* frame);
+    void        ReportConnectFailure(const char* reason);
+    bool        WriteFrame(unsigned char* frame);
 };

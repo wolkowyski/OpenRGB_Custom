@@ -9,7 +9,7 @@
 |   SPDX-License-Identifier: GPL-2.0-or-later               |
 \*---------------------------------------------------------*/
 
-#include <cstdint>
+#include <vector>
 #include "DetectionManager.h"
 #include "BLEDOMController_Windows.h"
 #include "LogManager.h"
@@ -17,17 +17,21 @@
 #include "RGBController_BLEDOM_Windows.h"
 #include "SettingsManager.h"
 
+#define BLEDOM_DEFAULT_NAME         "BLEDOM LED Strip"
+
 /*---------------------------------------------------------*\
 | Devices are configured in Manually Added Devices and      |
 | stored in OpenRGB.json as:                                |
+|                                                           |
 |   "BLEDOMDevices": { "devices": [                         |
 |       { "name": "Desk strip", "mac": "FF:FF:10:E0:4D:84" }|
 |   ] }                                                     |
 \*---------------------------------------------------------*/
 DetectedControllers DetectBLEDOMControllers()
 {
-    DetectedControllers detected_controllers;
-    json                bledom_settings;
+    DetectedControllers             detected_controllers;
+    json                            bledom_settings;
+    std::vector<unsigned long long> used_addresses;
 
     bledom_settings = ResourceManager::get()->GetSettingsManager()->GetSettings("BLEDOMDevices");
 
@@ -45,21 +49,42 @@ DetectedControllers DetectBLEDOMControllers()
             continue;
         }
 
-        std::string mac  = device["mac"];
-        std::string name = "BLEDOM LED Strip";
+        std::string         mac     = device["mac"];
+        std::string         name    = BLEDOM_DEFAULT_NAME;
+        unsigned long long  address = 0;
+        bool                in_use  = false;
 
         if(device.contains("name") && device["name"].is_string() && !device["name"].get<std::string>().empty())
         {
             name = device["name"];
         }
 
-        uint64_t address;
-
-        if(!BLEDOMController::ParseMAC(mac, address))
+        if(!BLEDOMController::ParseMAC(mac, &address))
         {
             LOG_ERROR("[BLEDOM] Skipping \"%s\": invalid MAC address \"%s\"", name.c_str(), mac.c_str());
             continue;
         }
+
+        /*-------------------------------------------------*\
+        | Two controllers on the same strip would fight     |
+        | over its single BLE connection                    |
+        \*-------------------------------------------------*/
+        for(unsigned int used_idx = 0; used_idx < used_addresses.size(); used_idx++)
+        {
+            if(used_addresses[used_idx] == address)
+            {
+                in_use = true;
+                break;
+            }
+        }
+
+        if(in_use)
+        {
+            LOG_WARNING("[BLEDOM] Skipping \"%s\": MAC address %s is already configured", name.c_str(), mac.c_str());
+            continue;
+        }
+
+        used_addresses.push_back(address);
 
         BLEDOMController*     controller     = new BLEDOMController(name, mac);
         RGBController_BLEDOM* rgb_controller = new RGBController_BLEDOM(controller);

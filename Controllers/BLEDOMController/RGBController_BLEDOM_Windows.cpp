@@ -21,7 +21,8 @@
     @detectors DetectBLEDOMControllers
     @comment Generic Bluetooth LE strips that advertise as ELK-BLEDOM
         (sold under many brands, e.g. Lambo Tech). Add each strip by MAC
-        address in Settings > Manually Added Devices.
+        address in Settings > Manually Added Devices. The strip accepts a
+        single BLE connection, so close the phone app first.
 \*-------------------------------------------------------------------*/
 
 RGBController_BLEDOM::RGBController_BLEDOM(BLEDOMController* controller_ptr)
@@ -36,8 +37,10 @@ RGBController_BLEDOM::RGBController_BLEDOM(BLEDOMController* controller_ptr)
     serial      = controller->GetMAC();
 
     /*-----------------------------------------------------*\
-    | The strip has no brightness command we rely on, so    |
-    | brightness is applied by scaling the color.           |
+    | Brightness is applied by scaling the color, which     |
+    | works the same on every BLEDOM firmware.              |
+    | Off sends the power off command; any color turns the  |
+    | strip back on.                                        |
     \*-----------------------------------------------------*/
     mode Direct;
     Direct.name           = "Direct";
@@ -90,7 +93,7 @@ void RGBController_BLEDOM::DeviceUpdateLEDs()
 {
     if(modes[active_mode].value == BLEDOM_MODE_OFF)
     {
-        controller->SetColor(0, 0, 0);
+        controller->SetPower(false);
         return;
     }
 
