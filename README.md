@@ -6,7 +6,7 @@
 >
 > - Native Bluetooth LE driver on Windows through the WinRT GATT API, with no extra dependencies
 > - Strips are added by **name + MAC** in *Settings → Manually Added Devices*, and you can add as many as you want
-> - Modes: **Direct** (any color, for PC-driven effects), every built-in effect of the strip (**Breathing**, **Flashing**, **Jump**, **Jump RGB**, **Cross Fade**) with speed control, and a real **Off**
+> - Modes: **Direct** (any color, for PC-driven effects), every built-in effect of the strip (**Breathing**, **Flashing**, **Jump**, **Cross Fade**) with speed control, and a real **Off**
 > - Background connection with automatic reconnect, plus rate-limited writes so PC effects don't flood the strip
 > - Tested on a real strip: color, brightness, power off/on, every built-in effect and the settings screen
 >
@@ -15,9 +15,9 @@
 > | Direct | Any color, updated live | Brightness |
 > | Breathing | Fades in and out | One of 7 colors, or cycling through them · Speed |
 > | Flashing | Strobe | One of 7 colors, or cycling through them · Speed |
-> | Jump | Jumps between 7 colors | Speed |
-> | Jump RGB | Jumps between red, green and blue | Speed |
-> | Cross Fade | Fades smoothly between two colors | Two of red, green and blue, or cycling through all three · Speed |
+> | Jump (7 Colors) | Jumps between 7 colors | Speed |
+> | Jump (RGB) | Jumps between red, green and blue | Speed |
+> | Cross Fade (pick 2 colors) | Fades smoothly between two colors | *Mode-Specific*: pick Color 1 and Color 2 in the LED list (they snap to red, green or blue). *Random*: cycles through all three · Speed |
 > | Off | Powers the strip off | |
 >
 > Built-in effects run on the strip itself. Their colors snap to the ones the firmware supports, and some firmwares (including the one tested) ignore the brightness slider while an effect runs. For anything else (smooth rainbows, music, syncing with other devices), use Direct with the [OpenRGB Effects Plugin](https://gitlab.com/OpenRGBDevelopers/OpenRGBEffectsPlugin).

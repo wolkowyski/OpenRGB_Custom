@@ -176,32 +176,6 @@ RGBController_BLEDOM::RGBController_BLEDOM(BLEDOMController* controller_ptr)
     Direct.brightness           = BLEDOM_BRIGHTNESS_MAX;
     modes.push_back(Direct);
 
-    mode Jump;
-    Jump.name                   = "Jump";
-    Jump.value                  = BLEDOM_MODE_JUMP;
-    Jump.flags                  = MODE_FLAG_HAS_SPEED | MODE_FLAG_HAS_BRIGHTNESS;
-    Jump.color_mode             = MODE_COLORS_NONE;
-    Jump.speed_min              = BLEDOM_SPEED_MIN;
-    Jump.speed_max              = BLEDOM_SPEED_MAX;
-    Jump.speed                  = BLEDOM_SPEED_DEFAULT;
-    Jump.brightness_min         = BLEDOM_BRIGHTNESS_MIN;
-    Jump.brightness_max         = BLEDOM_BRIGHTNESS_MAX;
-    Jump.brightness             = BLEDOM_BRIGHTNESS_MAX;
-    modes.push_back(Jump);
-
-    mode JumpRGB;
-    JumpRGB.name                = "Jump RGB";
-    JumpRGB.value               = BLEDOM_MODE_JUMP_RGB;
-    JumpRGB.flags               = MODE_FLAG_HAS_SPEED | MODE_FLAG_HAS_BRIGHTNESS;
-    JumpRGB.color_mode          = MODE_COLORS_NONE;
-    JumpRGB.speed_min           = BLEDOM_SPEED_MIN;
-    JumpRGB.speed_max           = BLEDOM_SPEED_MAX;
-    JumpRGB.speed               = BLEDOM_SPEED_DEFAULT;
-    JumpRGB.brightness_min      = BLEDOM_BRIGHTNESS_MIN;
-    JumpRGB.brightness_max      = BLEDOM_BRIGHTNESS_MAX;
-    JumpRGB.brightness          = BLEDOM_BRIGHTNESS_MAX;
-    modes.push_back(JumpRGB);
-
     mode Breathing;
     Breathing.name              = "Breathing";
     Breathing.value             = BLEDOM_MODE_BREATHING;
@@ -236,8 +210,34 @@ RGBController_BLEDOM::RGBController_BLEDOM(BLEDOMController* controller_ptr)
     Flashing.brightness         = BLEDOM_BRIGHTNESS_MAX;
     modes.push_back(Flashing);
 
+    mode Jump;
+    Jump.name                   = "Jump (7 Colors)";
+    Jump.value                  = BLEDOM_MODE_JUMP;
+    Jump.flags                  = MODE_FLAG_HAS_SPEED | MODE_FLAG_HAS_BRIGHTNESS;
+    Jump.color_mode             = MODE_COLORS_NONE;
+    Jump.speed_min              = BLEDOM_SPEED_MIN;
+    Jump.speed_max              = BLEDOM_SPEED_MAX;
+    Jump.speed                  = BLEDOM_SPEED_DEFAULT;
+    Jump.brightness_min         = BLEDOM_BRIGHTNESS_MIN;
+    Jump.brightness_max         = BLEDOM_BRIGHTNESS_MAX;
+    Jump.brightness             = BLEDOM_BRIGHTNESS_MAX;
+    modes.push_back(Jump);
+
+    mode JumpRGB;
+    JumpRGB.name                = "Jump (RGB)";
+    JumpRGB.value               = BLEDOM_MODE_JUMP_RGB;
+    JumpRGB.flags               = MODE_FLAG_HAS_SPEED | MODE_FLAG_HAS_BRIGHTNESS;
+    JumpRGB.color_mode          = MODE_COLORS_NONE;
+    JumpRGB.speed_min           = BLEDOM_SPEED_MIN;
+    JumpRGB.speed_max           = BLEDOM_SPEED_MAX;
+    JumpRGB.speed               = BLEDOM_SPEED_DEFAULT;
+    JumpRGB.brightness_min      = BLEDOM_BRIGHTNESS_MIN;
+    JumpRGB.brightness_max      = BLEDOM_BRIGHTNESS_MAX;
+    JumpRGB.brightness          = BLEDOM_BRIGHTNESS_MAX;
+    modes.push_back(JumpRGB);
+
     mode CrossFade;
-    CrossFade.name              = "Cross Fade";
+    CrossFade.name              = "Cross Fade (pick 2 colors)";
     CrossFade.value             = BLEDOM_MODE_CROSS_FADE;
     CrossFade.flags             = MODE_FLAG_HAS_SPEED | MODE_FLAG_HAS_BRIGHTNESS | MODE_FLAG_HAS_MODE_SPECIFIC_COLOR | MODE_FLAG_HAS_RANDOM_COLOR;
     CrossFade.color_mode        = MODE_COLORS_MODE_SPECIFIC;
