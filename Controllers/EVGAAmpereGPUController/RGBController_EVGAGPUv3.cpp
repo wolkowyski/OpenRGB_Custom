@@ -20,6 +20,12 @@ static const char* evga_v3_zone_names[] =
     "Addressable Header"
 };
 
+/*---------------------------------------------------------*\
+| Hardware index of the addressable (ARGB) header zone, the |
+| only zone whose LED count can be changed                  |
+\*---------------------------------------------------------*/
+#define EVGA_GPU_V3_ARGB_HEADER_ZONE    3
+
 /**------------------------------------------------------------------*\
     @name EVGA RGB v3 GPU
     @category GPU
@@ -241,9 +247,26 @@ void RGBController_EVGAGPUv3::SetupZones()
 
             new_zone->name          = evga_v3_zone_names[zone_idx];
             new_zone->type          = ZONE_TYPE_SINGLE;
-            new_zone->leds_min      = 1;
-            new_zone->leds_max      = 1;
-            new_zone->leds_count    = 1;
+
+            /*---------------------------------------------------------*\
+            | The ARGB header has a configurable LED count, but the     |
+            | card still sets every LED on it to a single color, so it  |
+            | is an effects-only zone.  Start from the count stored in  |
+            | the card so that loading a profile does not change it.    |
+            \*---------------------------------------------------------*/
+            if(zone_idx == EVGA_GPU_V3_ARGB_HEADER_ZONE)
+            {
+                new_zone->flags         = ZONE_FLAG_MANUALLY_CONFIGURABLE_SIZE_EFFECTS_ONLY;
+                new_zone->leds_min      = EVGAGPUV3_LEDS_MIN;
+                new_zone->leds_max      = EVGAGPUV3_LEDS_MAX;
+                new_zone->leds_count    = controller->zone_led_count[zone_idx];
+            }
+            else
+            {
+                new_zone->leds_min      = 1;
+                new_zone->leds_max      = 1;
+                new_zone->leds_count    = 1;
+            }
 
             new_led->name           = evga_v3_zone_names[zone_idx];
             /*---------------------------------------------------------*\
@@ -259,7 +282,14 @@ void RGBController_EVGAGPUv3::SetupZones()
 
 void RGBController_EVGAGPUv3::DeviceConfigureZone(int zone_idx)
 {
-    controller->ResizeARGB(zones[zone_idx].leds_count);
+    /*---------------------------------------------------------*\
+    | Only the ARGB header can be resized.  Sending its size    |
+    | for any other zone would set the header to 1 LED.         |
+    \*---------------------------------------------------------*/
+    if(zoneIndexMap[zone_idx] == EVGA_GPU_V3_ARGB_HEADER_ZONE)
+    {
+        controller->ResizeARGB((unsigned char)zones[zone_idx].leds_count);
+    }
 }
 
 void RGBController_EVGAGPUv3::DeviceUpdateLEDs()

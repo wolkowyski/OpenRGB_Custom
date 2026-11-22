@@ -24,6 +24,8 @@
 >
 > Code: [`Controllers/BLEDOMController/`](Controllers/BLEDOMController/) (the protocol is documented in [`BLEDOMController_Windows.h`](Controllers/BLEDOMController/BLEDOMController_Windows.h)) · Settings UI: [`qt/ManualDevicesSettingsPage/BLEDOMSettingsEntry/`](qt/ManualDevicesSettingsPage/BLEDOMSettingsEntry/)
 >
+> **Also fixed in this fork:** on EVGA RTX 30 (Ampere) cards, current OpenRGB resets the GPU's ARGB header to 1 LED every time it loads the saved zone configuration, so only the first LED of the fans plugged into the card lights up. Here the *Addressable Header* zone can be resized (1–60 LEDs) and starts from the count stored on the card. If yours is already stuck at 1 LED, open *Edit Device* on that zone, set the real LED count and press *Save To Device*. Code: [`RGBController_EVGAGPUv3.cpp`](Controllers/EVGAAmpereGPUController/RGBController_EVGAGPUv3.cpp)
+>
 > **Setup:** find the strip's MAC (for example with *nRF Connect* on your phone), then go to *Settings → Manually Added Devices → Add → ELK-BLEDOM (Bluetooth LE)*, enter a name and the MAC, save and rescan. Close the phone app first, because the strip only accepts one connection.
 >
 > **Build (Windows):** Qt 6 (MSVC 2022 64-bit) + Visual Studio Build Tools with the Windows 11 SDK, then
