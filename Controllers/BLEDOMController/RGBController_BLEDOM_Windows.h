@@ -15,12 +15,16 @@
 #include "BLEDOMController_Windows.h"
 
 #define BLEDOM_BRIGHTNESS_MIN   0
-#define BLEDOM_BRIGHTNESS_MAX   100
+#define BLEDOM_SPEED_MIN        0
+#define BLEDOM_SPEED_DEFAULT    50
 
 enum
 {
-    BLEDOM_MODE_DIRECT  = 0,
-    BLEDOM_MODE_OFF     = 1,
+    BLEDOM_MODE_DIRECT          = 0,
+    BLEDOM_MODE_BREATHING       = 1,
+    BLEDOM_MODE_FLASHING        = 2,
+    BLEDOM_MODE_JUMP            = 3,
+    BLEDOM_MODE_OFF             = 4,
 };
 
 class RGBController_BLEDOM : public RGBController

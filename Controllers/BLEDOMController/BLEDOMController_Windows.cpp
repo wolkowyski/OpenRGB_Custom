@@ -60,45 +60,73 @@ struct BLEDOMWinRTState
     GattWriteOption             write_option    { GattWriteOption::WriteWithoutResponse };
 };
 
-static void BuildColorFrame(unsigned char* frame, unsigned char* color)
+/*---------------------------------------------------------*\
+| Frame builders                                            |
+\*---------------------------------------------------------*/
+static void BuildFrame(unsigned char* frame, unsigned char b1, unsigned char b2, unsigned char b3, unsigned char b4, unsigned char b5, unsigned char b6, unsigned char b7)
 {
     frame[0] = 0x7E;
-    frame[1] = 0x07;
-    frame[2] = 0x05;
-    frame[3] = 0x03;
-    frame[4] = color[0];
-    frame[5] = color[1];
-    frame[6] = color[2];
-    frame[7] = 0x10;
+    frame[1] = b1;
+    frame[2] = b2;
+    frame[3] = b3;
+    frame[4] = b4;
+    frame[5] = b5;
+    frame[6] = b6;
+    frame[7] = b7;
     frame[8] = 0xEF;
+}
+
+static void BuildColorFrame(unsigned char* frame, unsigned char* color)
+{
+    BuildFrame(frame, 0x07, 0x05, 0x03, color[0], color[1], color[2], 0x10);
 }
 
 static void BuildPowerFrame(unsigned char* frame, bool on)
 {
-    frame[0] = 0x7E;
-    frame[1] = 0x04;
-    frame[2] = 0x04;
-    frame[3] = on ? 0xF0 : 0x00;
-    frame[4] = 0x00;
-    frame[5] = on ? 0x01 : 0x00;
-    frame[6] = 0xFF;
-    frame[7] = 0x00;
-    frame[8] = 0xEF;
+    if(on)
+    {
+        BuildFrame(frame, 0x04, 0x04, 0xF0, 0x00, 0x01, 0xFF, 0x00);
+    }
+    else
+    {
+        BuildFrame(frame, 0x04, 0x04, 0x00, 0x00, 0x00, 0xFF, 0x00);
+    }
+}
+
+static void BuildBrightnessFrame(unsigned char* frame, unsigned char brightness)
+{
+    BuildFrame(frame, 0x04, 0x01, brightness, 0xFF, 0xFF, 0xFF, 0x00);
+}
+
+static void BuildSpeedFrame(unsigned char* frame, unsigned char speed)
+{
+    BuildFrame(frame, 0x04, 0x02, speed, 0xFF, 0xFF, 0xFF, 0x00);
+}
+
+static void BuildEffectFrame(unsigned char* frame, unsigned char effect)
+{
+    BuildFrame(frame, 0x05, 0x03, effect, 0x03, 0xFF, 0xFF, 0x00);
 }
 
 BLEDOMController::BLEDOMController(std::string dev_name, std::string mac)
 {
-    name                = dev_name;
-    mac_string          = mac;
-    address             = 0;
-    winrt_state         = new BLEDOMWinRTState;
-    worker_thread       = NULL;
-    connected           = false;
-    connect_failures    = 0;
-    worker_running      = false;
-    color_pending       = false;
-    power_pending       = false;
-    requested_power     = BLEDOM_POWER_UNKNOWN;
+    name                    = dev_name;
+    mac_string              = mac;
+    address                 = 0;
+    winrt_state             = new BLEDOMWinRTState;
+    worker_thread           = NULL;
+    connected               = false;
+    connect_failures        = 0;
+    worker_running          = false;
+    power_pending           = false;
+    requested_power         = BLEDOM_POWER_UNKNOWN;
+    brightness_pending      = false;
+    requested_brightness    = -1;
+    speed_pending           = false;
+    requested_speed         = -1;
+    effect_pending          = false;
+    requested_effect        = -1;
+    color_pending           = false;
 
     memset(pending_color, 0, sizeof(pending_color));
 
@@ -112,8 +140,8 @@ BLEDOMController::BLEDOMController(std::string dev_name, std::string mac)
     | Connecting can take several seconds, so it happens on |
     | the worker thread and detection returns immediately.  |
     \*-----------------------------------------------------*/
-    worker_running      = true;
-    worker_thread       = new std::thread(&BLEDOMController::WorkerThreadFunction, this);
+    worker_running          = true;
+    worker_thread           = new std::thread(&BLEDOMController::WorkerThreadFunction, this);
 }
 
 BLEDOMController::~BLEDOMController()
@@ -155,19 +183,59 @@ std::string BLEDOMController::GetLocation()
     return("Bluetooth LE: " + mac_string);
 }
 
+/*---------------------------------------------------------*\
+| Request helpers, called with pending_mutex held           |
+\*---------------------------------------------------------*/
+bool BLEDOMController::AnyPending()
+{
+    /*-----------------------------------------------------*\
+    | Brightness and speed changes made while the strip is  |
+    | off are kept until it is powered on again             |
+    \*-----------------------------------------------------*/
+    bool power_on = (requested_power == BLEDOM_POWER_ON);
+
+    return(power_pending || effect_pending || color_pending || (power_on && (brightness_pending || speed_pending)));
+}
+
+void BLEDOMController::RequestPowerOn()
+{
+    if(requested_power != BLEDOM_POWER_ON)
+    {
+        requested_power = BLEDOM_POWER_ON;
+        power_pending   = true;
+
+        /*-------------------------------------------------*\
+        | Restart the active effect after powering on       |
+        \*-------------------------------------------------*/
+        if(requested_effect >= 0)
+        {
+            effect_pending = true;
+        }
+    }
+}
+
+void BLEDOMController::RequestBrightness(int brightness)
+{
+    if(requested_brightness != brightness)
+    {
+        requested_brightness = brightness;
+        brightness_pending   = true;
+    }
+}
+
 void BLEDOMController::SetColor(unsigned char red, unsigned char grn, unsigned char blu)
 {
     {
         std::lock_guard<std::mutex> lock(pending_mutex);
 
-        /*-------------------------------------------------*\
-        | Showing a color implies the strip must be on      |
+        /*-------------------------------------------------*\n        | Direct colors are dimmed by scaling, so keep the  |
+        | strip's own brightness at maximum                 |
         \*-------------------------------------------------*/
-        if(requested_power != BLEDOM_POWER_ON)
-        {
-            requested_power = BLEDOM_POWER_ON;
-            power_pending   = true;
-        }
+        RequestPowerOn();
+        RequestBrightness(BLEDOM_BRIGHTNESS_MAX);
+
+        requested_effect    = -1;
+        effect_pending      = false;
 
         pending_color[0]    = red;
         pending_color[1]    = grn;
@@ -177,20 +245,49 @@ void BLEDOMController::SetColor(unsigned char red, unsigned char grn, unsigned c
     pending_cv.notify_one();
 }
 
-void BLEDOMController::SetPower(bool on)
+void BLEDOMController::SetEffect(unsigned char effect, unsigned char speed, unsigned char brightness)
 {
-    int new_power = on ? BLEDOM_POWER_ON : BLEDOM_POWER_OFF;
-
     {
         std::lock_guard<std::mutex> lock(pending_mutex);
 
-        if(requested_power == new_power)
+        RequestPowerOn();
+        RequestBrightness(brightness);
+
+        if(requested_speed != speed)
+        {
+            requested_speed = speed;
+            speed_pending   = true;
+        }
+
+        if(requested_effect != effect)
+        {
+            requested_effect = effect;
+            effect_pending   = true;
+        }
+
+        color_pending = false;
+    }
+    pending_cv.notify_one();
+}
+
+void BLEDOMController::SetPower(bool on)
+{
+    {
+        std::lock_guard<std::mutex> lock(pending_mutex);
+
+        if(on)
+        {
+            RequestPowerOn();
+        }
+        else if(requested_power != BLEDOM_POWER_OFF)
+        {
+            requested_power = BLEDOM_POWER_OFF;
+            power_pending   = true;
+        }
+        else
         {
             return;
         }
-
-        requested_power     = new_power;
-        power_pending       = true;
     }
     pending_cv.notify_one();
 }
@@ -220,20 +317,24 @@ void BLEDOMController::WorkerThreadFunction()
 {
     winrt::init_apartment(winrt::apartment_type::multi_threaded);
 
-    unsigned char frame[BLEDOM_FRAME_SIZE];
+    unsigned char frames[BLEDOM_MAX_FRAMES][BLEDOM_FRAME_SIZE];
+    unsigned int  delays[BLEDOM_MAX_FRAMES];
     unsigned char color[3];
 
     while(true)
     {
-        bool stopping;
-        bool send_power;
-        bool power_on;
-        bool send_color;
+        bool            stopping;
+        unsigned int    frame_count     = 0;
+        bool            sent_power      = false;
+        bool            sent_effect     = false;
+        bool            sent_speed      = false;
+        bool            sent_brightness = false;
+        bool            sent_color      = false;
 
         {
             std::lock_guard<std::mutex> lock(pending_mutex);
 
-            if(!worker_running && !power_pending && !color_pending)
+            if(!worker_running && !AnyPending())
             {
                 break;
             }
@@ -265,50 +366,87 @@ void BLEDOMController::WorkerThreadFunction()
         }
 
         /*-------------------------------------------------*\
-        | Wait for a request and take a snapshot of it      |
+        | Wait for a request and turn it into frames, in    |
+        | the order the strip needs them                    |
         \*-------------------------------------------------*/
         {
             std::unique_lock<std::mutex> lock(pending_mutex);
 
-            while(worker_running && !power_pending && !color_pending)
+            while(worker_running && !AnyPending())
             {
                 pending_cv.wait(lock);
             }
 
-            if(!power_pending && !color_pending)
+            if(!AnyPending())
             {
                 continue;
             }
 
-            send_power      = power_pending;
-            power_on        = (requested_power == BLEDOM_POWER_ON);
-            send_color      = color_pending && power_on;
-            memcpy(color, pending_color, sizeof(color));
+            bool power_on = (requested_power == BLEDOM_POWER_ON);
 
-            power_pending   = false;
+            if(power_pending)
+            {
+                BuildPowerFrame(frames[frame_count], power_on);
+                delays[frame_count] = BLEDOM_COMMAND_SETTLE_TIME;
+                frame_count++;
+                sent_power          = true;
+                power_pending       = false;
+            }
+
+            if(power_on && effect_pending)
+            {
+                BuildEffectFrame(frames[frame_count], (unsigned char)requested_effect);
+                delays[frame_count] = BLEDOM_COMMAND_SETTLE_TIME;
+                frame_count++;
+                sent_effect         = true;
+            }
+
+            if(power_on && speed_pending)
+            {
+                BuildSpeedFrame(frames[frame_count], (unsigned char)requested_speed);
+                delays[frame_count] = BLEDOM_COMMAND_SETTLE_TIME;
+                frame_count++;
+                sent_speed          = true;
+                speed_pending       = false;
+            }
+
+            if(power_on && brightness_pending)
+            {
+                BuildBrightnessFrame(frames[frame_count], (unsigned char)requested_brightness);
+                delays[frame_count] = BLEDOM_COMMAND_SETTLE_TIME;
+                frame_count++;
+                sent_brightness     = true;
+                brightness_pending  = false;
+            }
+
+            if(power_on && color_pending)
+            {
+                memcpy(color, pending_color, sizeof(color));
+                BuildColorFrame(frames[frame_count], color);
+                delays[frame_count] = BLEDOM_MIN_WRITE_INTERVAL;
+                frame_count++;
+                sent_color          = true;
+            }
+
+            /*---------------------------------------------*\
+            | Effects and colors only make sense while on   |
+            \*---------------------------------------------*/
+            effect_pending  = false;
             color_pending   = false;
         }
 
-        /*-------------------------------------------------*\
-        | Power first, so a color sent after "on" is shown  |
-        \*-------------------------------------------------*/
         bool success = true;
 
-        if(send_power)
+        for(unsigned int frame_idx = 0; frame_idx < frame_count; frame_idx++)
         {
-            BuildPowerFrame(frame, power_on);
-            success = WriteFrame(frame);
+            success = WriteFrame(frames[frame_idx]);
 
-            if(success && send_color)
+            if(!success)
             {
-                std::this_thread::sleep_for(std::chrono::milliseconds(BLEDOM_POWER_SETTLE_TIME));
+                break;
             }
-        }
 
-        if(success && send_color)
-        {
-            BuildColorFrame(frame, color);
-            success = WriteFrame(frame);
+            std::this_thread::sleep_for(std::chrono::milliseconds(delays[frame_idx]));
         }
 
         if(!success)
@@ -321,25 +459,22 @@ void BLEDOMController::WorkerThreadFunction()
             }
 
             /*---------------------------------------------*\
-            | Requeue what failed unless a newer request    |
-            | already replaced it                           |
+            | Resend everything from this batch, keeping    |
+            | any newer color that arrived meanwhile        |
             \*---------------------------------------------*/
             std::lock_guard<std::mutex> lock(pending_mutex);
 
-            if(send_power)
-            {
-                power_pending = true;
-            }
+            power_pending       = power_pending      || sent_power;
+            effect_pending      = effect_pending     || (sent_effect && requested_effect >= 0);
+            speed_pending       = speed_pending      || sent_speed;
+            brightness_pending  = brightness_pending || sent_brightness;
 
-            if(send_color && !color_pending)
+            if(sent_color && !color_pending && requested_effect < 0)
             {
                 memcpy(pending_color, color, sizeof(color));
                 color_pending = true;
             }
-            continue;
         }
-
-        std::this_thread::sleep_for(std::chrono::milliseconds(BLEDOM_MIN_WRITE_INTERVAL));
     }
 
     /*-----------------------------------------------------*\
@@ -511,6 +646,9 @@ void BLEDOMController::Disconnect()
 
 bool BLEDOMController::WriteFrame(unsigned char* frame)
 {
+    LOG_TRACE("[BLEDOM] %s: %02X %02X %02X %02X %02X %02X %02X %02X %02X", name.c_str(),
+              frame[0], frame[1], frame[2], frame[3], frame[4], frame[5], frame[6], frame[7], frame[8]);
+
     try
     {
         DataWriter writer;

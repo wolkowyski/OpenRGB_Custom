@@ -2,10 +2,23 @@
 > **This is a fork of [OpenRGB](https://gitlab.com/CalcProgrammer1/OpenRGB)** by Braian Wolkowyski that adds
 > support for **ELK-BLEDOM Bluetooth LE LED strips** (the generic strips sold as *Lambo Tech* and many other brands).
 >
+> **[⬇ Download the Windows build](https://github.com/wolkowyski/OpenRGB_Custom/releases/latest)**: unzip it and run `OpenRGB.exe`, no install needed.
+>
 > - Native Bluetooth LE driver on Windows through the WinRT GATT API, with no extra dependencies
 > - Strips are added by **name + MAC** in *Settings → Manually Added Devices*, and you can add as many as you want
-> - Background connection with automatic reconnect, plus rate-limited writes so effects don't flood the strip
-> - Tested on real hardware: color, brightness and off
+> - Modes: **Direct** (any color, for PC-driven effects), the strip's built-in **Breathing**, **Flashing** (single color or random) and **Jump** with speed control, and a real **Off**
+> - Background connection with automatic reconnect, plus rate-limited writes so PC effects don't flood the strip
+> - Tested on a real strip: color, brightness, power off/on, every built-in effect and the settings screen
+>
+> | Mode | What it does | Options |
+> |---|---|---|
+> | Direct | Any color, updated live | Brightness |
+> | Breathing | Fades in and out | One of 7 colors, or cycling through them · Speed |
+> | Flashing | Strobe | One of 7 colors, or cycling through them · Speed |
+> | Jump | Jumps between 7 colors | Speed |
+> | Off | Powers the strip off | |
+>
+> Built-in effects run on the strip itself. Their colors snap to the 7 the firmware supports, and some firmwares (including the one tested) ignore the brightness slider while an effect runs. For anything else (smooth rainbows, music, syncing with other devices), use Direct with the [OpenRGB Effects Plugin](https://gitlab.com/OpenRGBDevelopers/OpenRGBEffectsPlugin).
 >
 > Code: [`Controllers/BLEDOMController/`](Controllers/BLEDOMController/) (the protocol is documented in [`BLEDOMController_Windows.h`](Controllers/BLEDOMController/BLEDOMController_Windows.h)) · Settings UI: [`qt/ManualDevicesSettingsPage/BLEDOMSettingsEntry/`](qt/ManualDevicesSettingsPage/BLEDOMSettingsEntry/)
 >
