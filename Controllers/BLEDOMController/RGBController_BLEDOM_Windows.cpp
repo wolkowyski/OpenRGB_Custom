@@ -91,6 +91,63 @@ static unsigned char NearestPresetColor(RGBColor color)
     return(best_idx);
 }
 
+/*---------------------------------------------------------*\
+| The two color cross fades only exist for pairs of red,    |
+| green and blue. Each color snaps to its strongest channel |
+| (0 = red, 1 = green, 2 = blue).                           |
+\*---------------------------------------------------------*/
+static int NearestPrimaryColor(RGBColor color)
+{
+    int red = RGBGetRValue(color);
+    int grn = RGBGetGValue(color);
+    int blu = RGBGetBValue(color);
+
+    if(red >= grn && red >= blu)
+    {
+        return(0);
+    }
+
+    if(grn >= blu)
+    {
+        return(1);
+    }
+
+    return(2);
+}
+
+static unsigned char CrossFadeEffect(RGBColor first_color, RGBColor second_color)
+{
+    int first   = NearestPrimaryColor(first_color);
+    int second  = NearestPrimaryColor(second_color);
+
+    /*-----------------------------------------------------*\
+    | Both colors on the same primary: fade to the next one |
+    \*-----------------------------------------------------*/
+    if(first == second)
+    {
+        second = (first + 1) % 3;
+    }
+
+    if(first > second)
+    {
+        int temp = first;
+        first    = second;
+        second   = temp;
+    }
+
+    if(first == 0 && second == 1)
+    {
+        return(BLEDOM_EFFECT_CROSS_FADE_RG);
+    }
+
+    if(first == 0)
+    {
+        return(BLEDOM_EFFECT_CROSS_FADE_RB);
+    }
+
+    return(BLEDOM_EFFECT_CROSS_FADE_GB);
+}
+
 RGBController_BLEDOM::RGBController_BLEDOM(BLEDOMController* controller_ptr)
 {
     controller  = controller_ptr;
@@ -132,6 +189,19 @@ RGBController_BLEDOM::RGBController_BLEDOM(BLEDOMController* controller_ptr)
     Jump.brightness             = BLEDOM_BRIGHTNESS_MAX;
     modes.push_back(Jump);
 
+    mode JumpRGB;
+    JumpRGB.name                = "Jump RGB";
+    JumpRGB.value               = BLEDOM_MODE_JUMP_RGB;
+    JumpRGB.flags               = MODE_FLAG_HAS_SPEED | MODE_FLAG_HAS_BRIGHTNESS;
+    JumpRGB.color_mode          = MODE_COLORS_NONE;
+    JumpRGB.speed_min           = BLEDOM_SPEED_MIN;
+    JumpRGB.speed_max           = BLEDOM_SPEED_MAX;
+    JumpRGB.speed               = BLEDOM_SPEED_DEFAULT;
+    JumpRGB.brightness_min      = BLEDOM_BRIGHTNESS_MIN;
+    JumpRGB.brightness_max      = BLEDOM_BRIGHTNESS_MAX;
+    JumpRGB.brightness          = BLEDOM_BRIGHTNESS_MAX;
+    modes.push_back(JumpRGB);
+
     mode Breathing;
     Breathing.name              = "Breathing";
     Breathing.value             = BLEDOM_MODE_BREATHING;
@@ -165,6 +235,24 @@ RGBController_BLEDOM::RGBController_BLEDOM(BLEDOMController* controller_ptr)
     Flashing.brightness_max     = BLEDOM_BRIGHTNESS_MAX;
     Flashing.brightness         = BLEDOM_BRIGHTNESS_MAX;
     modes.push_back(Flashing);
+
+    mode CrossFade;
+    CrossFade.name              = "Cross Fade";
+    CrossFade.value             = BLEDOM_MODE_CROSS_FADE;
+    CrossFade.flags             = MODE_FLAG_HAS_SPEED | MODE_FLAG_HAS_BRIGHTNESS | MODE_FLAG_HAS_MODE_SPECIFIC_COLOR | MODE_FLAG_HAS_RANDOM_COLOR;
+    CrossFade.color_mode        = MODE_COLORS_MODE_SPECIFIC;
+    CrossFade.colors_min        = 2;
+    CrossFade.colors_max        = 2;
+    CrossFade.colors.resize(2);
+    CrossFade.colors[0]         = bledom_preset_colors[0];
+    CrossFade.colors[1]         = bledom_preset_colors[1];
+    CrossFade.speed_min         = BLEDOM_SPEED_MIN;
+    CrossFade.speed_max         = BLEDOM_SPEED_MAX;
+    CrossFade.speed             = BLEDOM_SPEED_DEFAULT;
+    CrossFade.brightness_min    = BLEDOM_BRIGHTNESS_MIN;
+    CrossFade.brightness_max    = BLEDOM_BRIGHTNESS_MAX;
+    CrossFade.brightness        = BLEDOM_BRIGHTNESS_MAX;
+    modes.push_back(CrossFade);
 
     mode Off;
     Off.name                    = "Off";
@@ -245,6 +333,21 @@ void RGBController_BLEDOM::DeviceUpdateMode()
 
         case BLEDOM_MODE_JUMP:
             controller->SetEffect(BLEDOM_EFFECT_JUMP_7, speed, brightness);
+            break;
+
+        case BLEDOM_MODE_JUMP_RGB:
+            controller->SetEffect(BLEDOM_EFFECT_JUMP_3, speed, brightness);
+            break;
+
+        case BLEDOM_MODE_CROSS_FADE:
+            if(active.color_mode == MODE_COLORS_RANDOM)
+            {
+                controller->SetEffect(BLEDOM_EFFECT_CROSS_FADE_3, speed, brightness);
+            }
+            else
+            {
+                controller->SetEffect(CrossFadeEffect(active.colors[0], active.colors[1]), speed, brightness);
+            }
             break;
 
         case BLEDOM_MODE_BREATHING:

@@ -59,9 +59,14 @@
 |   color list below (red, green, blue, yellow, cyan,       |
 |   purple, white).                                         |
 \*---------------------------------------------------------*/
+#define BLEDOM_EFFECT_JUMP_3        0x87    /* jump between red, green and blue              */
 #define BLEDOM_EFFECT_JUMP_7        0x88    /* jump between 7 colors                         */
+#define BLEDOM_EFFECT_CROSS_FADE_3  0x89    /* cross fade between red, green and blue        */
 #define BLEDOM_EFFECT_BREATHING_7   0x8A    /* fade in and out, cycling through 7 colors     */
 #define BLEDOM_EFFECT_BREATHING     0x8B    /* + preset index, single color breathing        */
+#define BLEDOM_EFFECT_CROSS_FADE_RG 0x92    /* cross fade between red and green              */
+#define BLEDOM_EFFECT_CROSS_FADE_RB 0x93    /* cross fade between red and blue               */
+#define BLEDOM_EFFECT_CROSS_FADE_GB 0x94    /* cross fade between green and blue             */
 #define BLEDOM_EFFECT_STROBE_7      0x95    /* strobe cycling through 7 colors               */
 #define BLEDOM_EFFECT_STROBE        0x96    /* + preset index, single color strobe           */
 #define BLEDOM_PRESET_COUNT         7

@@ -24,7 +24,9 @@ enum
     BLEDOM_MODE_BREATHING       = 1,
     BLEDOM_MODE_FLASHING        = 2,
     BLEDOM_MODE_JUMP            = 3,
-    BLEDOM_MODE_OFF             = 4,
+    BLEDOM_MODE_JUMP_RGB        = 4,
+    BLEDOM_MODE_CROSS_FADE      = 5,
+    BLEDOM_MODE_OFF             = 6,
 };
 
 class RGBController_BLEDOM : public RGBController
