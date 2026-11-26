@@ -1007,33 +1007,33 @@ unsigned int RGBController::GetLEDsInZone(unsigned int zone)
 
 void RGBController::SetZoneActiveMode(unsigned int zone, int mode)
 {
-    AccessMutex.lock();
+    AccessMutex.lock_shared();
     if((zone < zones.size()) && (mode >= -1 ) && (mode < (int)zones[zone].modes.size()))
     {
         zones[zone].active_mode = mode;
-        AccessMutex.unlock();
+        AccessMutex.unlock_shared();
 
         UpdateZoneMode(zone);
     }
     else
     {
-        AccessMutex.unlock();
+        AccessMutex.unlock_shared();
     }
 }
 
 void RGBController::SetZoneColor(unsigned int zone, unsigned int color_index, RGBColor color)
 {
-    AccessMutex.lock();
+    AccessMutex.lock_shared();
     if((zone < zones.size()) && (color_index < zones[zone].leds_count))
     {
         zones[zone].colors[color_index] = color;
     }
-    AccessMutex.unlock();
+    AccessMutex.unlock_shared();
 }
 
 void RGBController::SetZoneModeBrightness(unsigned int zone, unsigned int mode, unsigned int brightness)
 {
-    AccessMutex.lock();
+    AccessMutex.lock_shared();
     if((zone < zones.size())
     && (mode < zones[zone].modes.size())
     && (((zones[zone].modes[mode].brightness_max >= zones[zone].modes[mode].brightness_min) && (brightness >= zones[zone].modes[mode].brightness_min) && (brightness <= zones[zone].modes[mode].brightness_max))
@@ -1041,27 +1041,27 @@ void RGBController::SetZoneModeBrightness(unsigned int zone, unsigned int mode, 
     {
         zones[zone].modes[mode].brightness = brightness;
     }
-    AccessMutex.unlock();
+    AccessMutex.unlock_shared();
 }
 
 void RGBController::SetZoneModeColor(unsigned int zone, unsigned int mode, unsigned int color_index, RGBColor color)
 {
-    AccessMutex.lock();
+    AccessMutex.lock_shared();
     if((zone < zones.size()) && (mode < zones[zone].modes.size()) && (color_index < zones[zone].modes[mode].colors.size()))
     {
         zones[zone].modes[mode].colors[color_index] = color;
     }
-    AccessMutex.unlock();
+    AccessMutex.unlock_shared();
 }
 
 void RGBController::SetZoneModeColorMode(unsigned int zone, unsigned int mode, unsigned int color_mode)
 {
-    AccessMutex.lock();
+    AccessMutex.lock_shared();
     if((zone < zones.size()) && (mode < zones[zone].modes.size()))
     {
         zones[zone].modes[mode].color_mode = color_mode;
     }
-    AccessMutex.unlock();
+    AccessMutex.unlock_shared();
 }
 
 void RGBController::SetZoneModeColorsCount(unsigned int zone, unsigned int mode, unsigned int count)
@@ -1076,7 +1076,7 @@ void RGBController::SetZoneModeColorsCount(unsigned int zone, unsigned int mode,
 
 void RGBController::SetZoneModeDirection(unsigned int zone, unsigned int mode, unsigned int direction)
 {
-    AccessMutex.lock();
+    AccessMutex.lock_shared();
     if((zone < zones.size())
     && (mode < zones[zone].modes.size())
     && (((zones[zone].modes[mode].flags & MODE_FLAG_HAS_DIRECTION_HV) && ((direction == MODE_DIRECTION_HORIZONTAL) || (direction == MODE_DIRECTION_VERTICAL)))
@@ -1086,12 +1086,12 @@ void RGBController::SetZoneModeDirection(unsigned int zone, unsigned int mode, u
     {
         zones[zone].modes[mode].direction = direction;
     }
-    AccessMutex.unlock();
+    AccessMutex.unlock_shared();
 }
 
 void RGBController::SetZoneModeSpeed(unsigned int zone, unsigned int mode, unsigned int speed)
 {
-    AccessMutex.lock();
+    AccessMutex.lock_shared();
     if((zone < zones.size())
     && (mode < zones[zone].modes.size())
     && (((zones[zone].modes[mode].speed_max >= zones[zone].modes[mode].speed_min) && (speed >= zones[zone].modes[mode].speed_min) && (speed <= zones[zone].modes[mode].speed_max))
@@ -1099,7 +1099,7 @@ void RGBController::SetZoneModeSpeed(unsigned int zone, unsigned int mode, unsig
     {
         zones[zone].modes[mode].speed = speed;
     }
-    AccessMutex.unlock();
+    AccessMutex.unlock_shared();
 }
 
 bool RGBController::SupportsPerZoneModes()
@@ -1369,34 +1369,41 @@ unsigned int RGBController::GetModeSpeedMin(unsigned int mode)
 
 void RGBController::SetModeBrightness(unsigned int mode, unsigned int brightness)
 {
-    AccessMutex.lock();
+    AccessMutex.lock_shared();
     if((mode < modes.size())
     && (((modes[mode].brightness_max >= modes[mode].brightness_min) && (brightness >= modes[mode].brightness_min) && (brightness <= modes[mode].brightness_max))
      || ((modes[mode].brightness_max <= modes[mode].brightness_min) && (brightness <= modes[mode].brightness_min) && (brightness >= modes[mode].brightness_max))))
     {
         modes[mode].brightness = brightness;
     }
-    AccessMutex.unlock();
+    AccessMutex.unlock_shared();
 }
 
 void RGBController::SetModeColor(unsigned int mode, unsigned int color_index, RGBColor color)
 {
-    AccessMutex.lock();
+    /*-----------------------------------------------------*\
+    | Only a value inside the existing vectors changes      |
+    | here, so a shared lock is enough. An exclusive lock   |
+    | would wait for the device thread, which holds a       |
+    | shared lock for the whole (slow) hardware write, and  |
+    | freezes the GUI on slow devices like SMBus DRAM.      |
+    \*-----------------------------------------------------*/
+    AccessMutex.lock_shared();
     if((mode < modes.size()) && (color_index < modes[mode].colors.size()))
     {
         modes[mode].colors[color_index] = color;
     }
-    AccessMutex.unlock();
+    AccessMutex.unlock_shared();
 }
 
 void RGBController::SetModeColorMode(unsigned int mode, unsigned int color_mode)
 {
-    AccessMutex.lock();
+    AccessMutex.lock_shared();
     if(mode < modes.size())
     {
         modes[mode].color_mode = color_mode;
     }
-    AccessMutex.unlock();
+    AccessMutex.unlock_shared();
 }
 
 void RGBController::SetModeColorsCount(unsigned int mode, unsigned int count)
@@ -1411,7 +1418,7 @@ void RGBController::SetModeColorsCount(unsigned int mode, unsigned int count)
 
 void RGBController::SetModeDirection(unsigned int mode, unsigned int direction)
 {
-    AccessMutex.lock();
+    AccessMutex.lock_shared();
     if((mode < modes.size())
     && (((modes[mode].flags & MODE_FLAG_HAS_DIRECTION_HV) && ((direction == MODE_DIRECTION_HORIZONTAL) || (direction == MODE_DIRECTION_VERTICAL)))
      || ((modes[mode].flags & MODE_FLAG_HAS_DIRECTION_LR) && ((direction == MODE_DIRECTION_LEFT) || (direction == MODE_DIRECTION_RIGHT)))
@@ -1420,19 +1427,19 @@ void RGBController::SetModeDirection(unsigned int mode, unsigned int direction)
     {
         modes[mode].direction = direction;
     }
-    AccessMutex.unlock();
+    AccessMutex.unlock_shared();
 }
 
 void RGBController::SetModeSpeed(unsigned int mode, unsigned int speed)
 {
-    AccessMutex.lock();
+    AccessMutex.lock_shared();
     if((mode < modes.size())
     && (((modes[mode].speed_max >= modes[mode].speed_min) && (speed >= modes[mode].speed_min) && (speed <= modes[mode].speed_max))
      || ((modes[mode].speed_max <= modes[mode].speed_min) && (speed <= modes[mode].speed_min) && (speed >= modes[mode].speed_max))))
     {
         modes[mode].speed = speed;
     }
-    AccessMutex.unlock();
+    AccessMutex.unlock_shared();
 }
 
 int RGBController::GetActiveMode()
@@ -1479,10 +1486,10 @@ void RGBController::SetActiveMode(int mode)
         }
     }
 
-    AccessMutex.lock();
+    AccessMutex.lock_shared();
     active_mode = mode;
 
-    AccessMutex.unlock();
+    AccessMutex.unlock_shared();
 
     UpdateMode();
 }
@@ -1597,12 +1604,19 @@ RGBColor* RGBController::GetColorsPointer()
 
 void RGBController::SetColor(unsigned int led, RGBColor color)
 {
-    AccessMutex.lock();
+    /*-----------------------------------------------------*\
+    | Only a value inside the existing vectors changes      |
+    | here, so a shared lock is enough. An exclusive lock   |
+    | would wait for the device thread, which holds a       |
+    | shared lock for the whole (slow) hardware write, and  |
+    | freezes the GUI on slow devices like SMBus DRAM.      |
+    \*-----------------------------------------------------*/
+    AccessMutex.lock_shared();
     if(led < colors.size())
     {
         colors[led] = color;
     }
-    AccessMutex.unlock();
+    AccessMutex.unlock_shared();
 }
 
 void RGBController::SetAllColors(RGBColor color)
@@ -1615,12 +1629,12 @@ void RGBController::SetAllColors(RGBColor color)
 
 void RGBController::SetAllZoneColors(int zone, RGBColor color)
 {
-    AccessMutex.lock();
+    AccessMutex.lock_shared();
     for(std::size_t color_idx = 0; color_idx < LEDsInZone(zone); color_idx++)
     {
         zones[zone].colors[color_idx] = color;
     }
-    AccessMutex.unlock();
+    AccessMutex.unlock_shared();
 }
 
 /*-----------------------------------------------------*\
